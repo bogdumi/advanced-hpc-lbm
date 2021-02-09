@@ -102,7 +102,7 @@ int write_values(const t_param params, t_speed* cells, int* obstacles, float* av
 // Optimised funcs
 int propagate_cells(const t_param params, t_speed* cells, t_speed* tmp_cells, int ii, int jj);
 int rebound_cells(const t_param params, t_speed* cells, t_speed* tmp_cells, int* obstacles, int ii, int jj); 
-int collision_cells(const t_param params, t_speed* cells, t_speed* tmp_cells, int* obstacles, const float c_sq, const float w0, const float w1, const float w2, int ii, int jj);
+int collision_cells(const t_param params, t_speed* cells, t_speed* tmp_cells, int* obstacles, int ii, int jj);
 
 /* finalise, including freeing up allocated memory */
 int finalise(const t_param* params, t_speed** cells_ptr, t_speed** tmp_cells_ptr,
@@ -191,27 +191,22 @@ int main(int argc, char* argv[])
 }
 
 int timestep(const t_param params, t_speed* cells, t_speed* tmp_cells, int* obstacles)
-{
+{ 
   // TODO: optimise this
   accelerate_flow(params, cells, obstacles);
-
-  // Collision constants
-  // TODO: optimise this
-  const float c_sq = 1.f / 3.f; /* square of speed of sound */
-  const float w0 = 4.f / 9.f;  /* weighting factor */
-  const float w1 = 1.f / 9.f;  /* weighting factor */
-  const float w2 = 1.f / 36.f; /* weighting factor */
   
   for (int jj = 0; jj < params.ny; jj++){
     for (int ii = 0; ii < params.nx; ii++){
       propagate_cells(params, cells, tmp_cells, ii, jj);
-      rebound_cells(params, cells, tmp_cells, obstacles, ii, jj);
-      collision_cells(params, cells, tmp_cells, obstacles, c_sq, w0, w1, w2, ii, jj);
+      //rebound_cells(params, cells, tmp_cells, obstacles, ii, jj);
+      //collision_cells(params, cells, tmp_cells, obstacles, ii, jj);
     }
   }
+
+  rebound(params, cells, tmp_cells, obstacles);
+  collision(params, cells, tmp_cells, obstacles);
   return EXIT_SUCCESS;
 }
-
 
 int accelerate_flow(const t_param params, t_speed* cells, int* obstacles)
 {
@@ -345,7 +340,12 @@ int rebound(const t_param params, t_speed* cells, t_speed* tmp_cells, int* obsta
   return EXIT_SUCCESS;
 }
 
-int collision_cells(const t_param params, t_speed* cells, t_speed* tmp_cells, int* obstacles, const float c_sq, const float w0, const float w1, const float w2, int ii, int jj){
+int collision_cells(const t_param params, t_speed* cells, t_speed* tmp_cells, int* obstacles, int ii, int jj){
+  const float c_sq = 1.f / 3.f; /* square of speed of sound */
+  const float w0 = 4.f / 9.f;  /* weighting factor */
+  const float w1 = 1.f / 9.f;  /* weighting factor */
+  const float w2 = 1.f / 36.f; /* weighting factor */
+  
   /* don't consider occupied cells */
   if (!obstacles[ii + jj*params.nx])
   {

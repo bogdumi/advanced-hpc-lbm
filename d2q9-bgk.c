@@ -231,6 +231,7 @@ int timestep(const t_param params, t_speed* __restrict__ cells, t_speed* __restr
   __assume((params.nx)%2==0);
   __assume((params.ny)%2==0);
   
+  //#pragma omp parallel for schedule(static)
   for (int jj = 0; jj < params.ny; jj++){
     #pragma vector aligned
     #pragma ivdep
@@ -356,12 +357,32 @@ int collision_cells(const t_param params, t_speed* __restrict__ cells, t_speed* 
     /* compute local density total */
     float local_density = 0.f;
 
-    local_density += (tmp_cells -> speeds0[c] + tmp_cells -> speeds1[c] + tmp_cells -> speeds2[c] + tmp_cells -> speeds3[c] + tmp_cells -> speeds4[c] + tmp_cells -> speeds5[c] + tmp_cells -> speeds6[c] + tmp_cells -> speeds7[c] + tmp_cells -> speeds8[c]);
+    local_density += (tmp_cells -> speeds0[c] 
+                  + tmp_cells -> speeds1[c]
+                  + tmp_cells -> speeds2[c] 
+                  + tmp_cells -> speeds3[c] 
+                  + tmp_cells -> speeds4[c] 
+                  + tmp_cells -> speeds5[c] 
+                  + tmp_cells -> speeds6[c] 
+                  + tmp_cells -> speeds7[c] 
+                  + tmp_cells -> speeds8[c]);
 
     /* compute x velocity component */
-    float u_x = (tmp_cells -> speeds1[c] + tmp_cells -> speeds5[c] + tmp_cells -> speeds8[c] - (tmp_cells -> speeds3[c] + tmp_cells -> speeds6[c] + tmp_cells -> speeds7[c])) / local_density;
+    float u_x = (tmp_cells -> speeds1[c] 
+                + tmp_cells -> speeds5[c] 
+                + tmp_cells -> speeds8[c] 
+                - (tmp_cells -> speeds3[c] 
+                + tmp_cells -> speeds6[c] 
+                + tmp_cells -> speeds7[c])) 
+                / local_density;
     /* compute y velocity component */
-    float u_y = (tmp_cells -> speeds2[c] + tmp_cells -> speeds5[c] + tmp_cells -> speeds6[c] - (tmp_cells -> speeds4[c] + tmp_cells -> speeds7[c] + tmp_cells -> speeds8[c])) / local_density;
+    float u_y = (tmp_cells -> speeds2[c] 
+                + tmp_cells -> speeds5[c] 
+                + tmp_cells -> speeds6[c] 
+                - (tmp_cells -> speeds4[c] 
+                + tmp_cells -> speeds7[c] 
+                + tmp_cells -> speeds8[c])) 
+                / local_density;
 
     /* velocity squared */
     float u_sq = u_x * u_x + u_y * u_y;
@@ -588,6 +609,7 @@ int initialise(const char* paramfile, const char* obstaclefile,
     die(message, __LINE__, __FILE__);
   }
 
+  // #pragma omp parallel for
   for (int jj = 0; jj < params->ny; jj++)
   {
     for (int ii = 0; ii < params->nx; ii++)

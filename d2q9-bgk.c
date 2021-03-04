@@ -236,6 +236,7 @@ int timestep(const t_param params, t_speed* __restrict__ cells, t_speed* __restr
   for (int jj = 0; jj < params.ny; jj++){
     #pragma vector aligned
     #pragma ivdep
+    #pragma omp simd
     for (int ii = 0; ii < params.nx; ii++){
       int c = jj*params.nx + ii;
       /* determine indices of axis-direction neighbours
@@ -384,7 +385,7 @@ int accelerate_flow_cells(const t_param params, t_speed* __restrict__ cells, t_s
 
   #pragma vector aligned
   #pragma ivdep
-  #pragma omp parallel for 
+  #pragma omp simd
   for (int ii = 0; ii < params.nx; ii++)
   {
     int c = ii + jj*params.nx;
@@ -423,6 +424,7 @@ float av_velocity(const t_param params, t_speed* __restrict__ cells, int* __rest
   {
     #pragma vector aligned
     #pragma ivdep
+    #pragma omp simd reduction (+:tot_u) reduction(+:tot_cells)
     for (int ii = 0; ii < params.nx; ii++)
     {
       int c = ii + jj*params.nx;
@@ -596,8 +598,6 @@ int initialise(const char* paramfile, const char* obstaclefile,
   #pragma omp parallel for
   for (int jj = 0; jj < params->ny; jj++)
   {
-    #pragma vector aligned
-    #pragma ivdep
     for (int ii = 0; ii < params->nx; ii++)
     {
       int c = ii + jj*params->nx;

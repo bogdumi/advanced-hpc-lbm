@@ -55,7 +55,7 @@
 #include <time.h>
 #include <sys/time.h>
 #include <sys/resource.h>
-#include <mm_malloc.h>
+#include <malloc.h>
 
 #define NSPEEDS         9
 #define FINALSTATEFILE  "final_state.dat"
@@ -232,7 +232,7 @@ int timestep(const t_param params, t_speed* __restrict__ cells, t_speed* __restr
   __assume((params.nx)%2==0);
   __assume((params.ny)%2==0);
   
-  #pragma omp parallel for
+  #pragma omp parallel for 
   for (int jj = 0; jj < params.ny; jj++){
     #pragma vector aligned
     #pragma ivdep
@@ -648,16 +648,37 @@ int finalise(const t_param* params, t_speed** cells_ptr, t_speed** tmp_cells_ptr
   /*
   ** free up allocated memory
   */
-  free(*cells_ptr);
+
+  _mm_free((*cells_ptr) -> speeds0);
+  _mm_free((*cells_ptr) -> speeds1);
+  _mm_free((*cells_ptr) -> speeds2);
+  _mm_free((*cells_ptr) -> speeds3);
+  _mm_free((*cells_ptr) -> speeds4);
+  _mm_free((*cells_ptr) -> speeds5);
+  _mm_free((*cells_ptr) -> speeds6);
+  _mm_free((*cells_ptr) -> speeds7);
+  _mm_free((*cells_ptr) -> speeds8);
+
+  _mm_free(*cells_ptr);
   *cells_ptr = NULL;
 
-  free(*tmp_cells_ptr);
+  _mm_free((*tmp_cells_ptr) -> speeds0);
+  _mm_free((*tmp_cells_ptr) -> speeds1);
+  _mm_free((*tmp_cells_ptr) -> speeds2);
+  _mm_free((*tmp_cells_ptr) -> speeds3);
+  _mm_free((*tmp_cells_ptr) -> speeds4);
+  _mm_free((*tmp_cells_ptr) -> speeds5);
+  _mm_free((*tmp_cells_ptr) -> speeds6);
+  _mm_free((*tmp_cells_ptr) -> speeds7);
+  _mm_free((*tmp_cells_ptr) -> speeds8);
+
+  _mm_free(*tmp_cells_ptr);
   *tmp_cells_ptr = NULL;
 
   free(*obstacles_ptr);
   *obstacles_ptr = NULL;
 
-  free(*av_vels_ptr);
+  _mm_free(*av_vels_ptr);
   *av_vels_ptr = NULL;
 
   return EXIT_SUCCESS;

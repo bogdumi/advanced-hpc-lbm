@@ -319,10 +319,10 @@ Begin optimization report for: calc_reynolds(const t_param, t_speed *, int *)
     Report from: Vector optimizations [vec]
 
 
-LOOP BEGIN at d2q9-bgk.c(423,3) inlined into d2q9-bgk.c(671,10)
+LOOP BEGIN at d2q9-bgk.c(423,3) inlined into d2q9-bgk.c(692,10)
    remark #15542: loop was not vectorized: inner loop was already vectorized
 
-   LOOP BEGIN at d2q9-bgk.c(428,5) inlined into d2q9-bgk.c(671,10)
+   LOOP BEGIN at d2q9-bgk.c(428,5) inlined into d2q9-bgk.c(692,10)
       remark #15388: vectorization support: reference cells[c] has aligned access   [ d2q9-bgk.c(437,27) ]
       remark #15388: vectorization support: reference *(local_density+c*4) has aligned access   [ d2q9-bgk.c(437,49) ]
       remark #15388: vectorization support: reference *(local_density+c*4) has aligned access   [ d2q9-bgk.c(437,93) ]
@@ -357,7 +357,7 @@ LOOP BEGIN at d2q9-bgk.c(423,3) inlined into d2q9-bgk.c(671,10)
       remark #15488: --- end vector cost summary ---
    LOOP END
 
-   LOOP BEGIN at d2q9-bgk.c(428,5) inlined into d2q9-bgk.c(671,10)
+   LOOP BEGIN at d2q9-bgk.c(428,5) inlined into d2q9-bgk.c(692,10)
    <Remainder loop for vectorization>
    LOOP END
 LOOP END
@@ -368,19 +368,22 @@ Begin optimization report for: write_values(const t_param, t_speed *, int *, flo
     Report from: Vector optimizations [vec]
 
 
-LOOP BEGIN at d2q9-bgk.c(707,3)
-   remark #15382: vectorization support: call to function fprintf(FILE *__restrict__, const char *__restrict__, ...) cannot be vectorized   [ d2q9-bgk.c(737,7) ]
+LOOP BEGIN at d2q9-bgk.c(728,3)
+   remark #15382: vectorization support: call to function fprintf(FILE *__restrict__, const char *__restrict__, ...) cannot be vectorized   [ d2q9-bgk.c(758,7) ]
    remark #15344: loop was not vectorized: vector dependence prevents vectorization
-   remark #15346: vector dependence: assumed OUTPUT dependence between call:fprintf(FILE *__restrict__, const char *__restrict__, ...) (737:7) and call:fprintf(FILE *__restrict__, const char *__restrict__, ...) (737:7)
-   remark #15346: vector dependence: assumed OUTPUT dependence between call:fprintf(FILE *__restrict__, const char *__restrict__, ...) (737:7) and call:fprintf(FILE *__restrict__, const char *__restrict__, ...) (737:7)
+   remark #15346: vector dependence: assumed OUTPUT dependence between call:fprintf(FILE *__restrict__, const char *__restrict__, ...) (758:7) and call:fprintf(FILE *__restrict__, const char *__restrict__, ...) (758:7)
+   remark #15346: vector dependence: assumed OUTPUT dependence between call:fprintf(FILE *__restrict__, const char *__restrict__, ...) (758:7) and call:fprintf(FILE *__restrict__, const char *__restrict__, ...) (758:7)
 
-   LOOP BEGIN at d2q9-bgk.c(709,5)
-      remark #15527: loop was not vectorized: function call to fprintf(FILE *__restrict__, const char *__restrict__, ...) cannot be vectorized   [ d2q9-bgk.c(737,7) ]
+   LOOP BEGIN at d2q9-bgk.c(730,5)
+      remark #15382: vectorization support: call to function fprintf(FILE *__restrict__, const char *__restrict__, ...) cannot be vectorized   [ d2q9-bgk.c(758,7) ]
+      remark #15344: loop was not vectorized: vector dependence prevents vectorization
+      remark #15346: vector dependence: assumed FLOW dependence between call:fprintf(FILE *__restrict__, const char *__restrict__, ...) (758:7) and *(local_density+c*4) (749:9)
+      remark #15346: vector dependence: assumed ANTI dependence between *(local_density+c*4) (749:9) and call:fprintf(FILE *__restrict__, const char *__restrict__, ...) (758:7)
    LOOP END
 LOOP END
 
-LOOP BEGIN at d2q9-bgk.c(750,3)
-   remark #15527: loop was not vectorized: function call to fprintf(FILE *__restrict__, const char *__restrict__, ...) cannot be vectorized   [ d2q9-bgk.c(752,5) ]
+LOOP BEGIN at d2q9-bgk.c(771,3)
+   remark #15527: loop was not vectorized: function call to fprintf(FILE *__restrict__, const char *__restrict__, ...) cannot be vectorized   [ d2q9-bgk.c(773,5) ]
 LOOP END
 ===========================================================================
 

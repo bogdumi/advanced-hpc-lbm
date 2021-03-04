@@ -171,6 +171,7 @@ int main(int argc, char* argv[])
   {
     timestep(params, cells, tmp_cells, obstacles);
     swap_cells(&cells, &tmp_cells);
+    __assume_aligned(av_vels, 64);
     av_vels[tt] = av_velocity(params, cells, obstacles);
     #ifdef DEBUG
     printf("==timestep: %d==\n", tt);
@@ -381,9 +382,9 @@ int accelerate_flow_cells(const t_param params, t_speed* __restrict__ cells, t_s
   __assume_aligned(cells->speeds8, 64);
   __assume((params.nx)%128==0);
 
-  // #pragma omp parallel for simd schedule(static)
   #pragma vector aligned
   #pragma ivdep
+  #pragma omp parallel for 
   for (int ii = 0; ii < params.nx; ii++)
   {
     int c = ii + jj*params.nx;
@@ -417,7 +418,7 @@ float av_velocity(const t_param params, t_speed* __restrict__ cells, int* __rest
   tot_u = 0.f;
 
   /* loop over all non-blocked cells */
-  //#pragma omp parallel for simd schedule(static)
+  #pragma omp parallel for reduction(+:tot_u) reduction(+:tot_cells)
   for (int jj = 0; jj < params.ny; jj++)
   {
     #pragma vector aligned
@@ -636,7 +637,7 @@ int initialise(const char* paramfile, const char* obstaclefile,
   ** allocate space to hold a record of the avarage velocities computed
   ** at each timestep
   */
-  *av_vels_ptr = (float*)malloc(sizeof(float) * params->maxIters);
+  *av_vels_ptr = (float*)_mm_malloc(sizeof(float) * params->maxIters, 64);
 
   return EXIT_SUCCESS;
 }

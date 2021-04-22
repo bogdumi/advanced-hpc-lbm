@@ -56,7 +56,9 @@
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <malloc.h>
+#include <mpi.h>
 
+#define MAINRANK 0
 #define NSPEEDS         9
 #define FINALSTATEFILE  "final_state.dat"
 #define AVVELSFILE      "av_vels.dat"
@@ -94,14 +96,16 @@ typedef struct
 /* load params, allocate memory, load obstacles & initialise fluid particle densities */
 int initialise(const char* paramfile, const char* obstaclefile,
                t_param* params, t_speed** cells_ptr, t_speed** tmp_cells_ptr,
-               int** obstacles_ptr, float** av_vels_ptr);
+               int** obstacles_ptr, float** av_vels_ptr, 
+               int nprocs, int rank, int slicesPerRank, int start, int end);
 
 /*
 ** The main calculation methods.
 ** timestep calls, in order, the functions:
 ** accelerate_flow(), propagate(), rebound() & collision()
 */
-int timestep(const t_param params, t_speed* __restrict__ cells, t_speed* __restrict__ tmp_cells, int* __restrict__ obstacles);
+int timestep(const t_param params, t_speed* __restrict__ cells, t_speed* __restrict__ tmp_cells, int* __restrict__ obstacles, 
+            int nprocs, int rank, int slicesPerRank, int start, int end);
 int write_values(const t_param params, t_speed* cells, int* obstacles, float* av_vels);
 
 // Optimised funcs
@@ -111,10 +115,11 @@ int rebound_cells(const t_param params, t_speed* __restrict__ cells, t_speed* __
 int collision_cells(const t_param params, t_speed* __restrict__ cells, t_speed* __restrict__ tmp_cells, int* __restrict__ obstacles, int c);
 
 void swap_cells(t_speed** __restrict__ cells, t_speed** __restrict__ tmp_cells);
+void halo_exchange(t_speed** __restrict__ cells, int nprocs, int rank, int slicesPerRank, int start, int end);
 
 /* finalise, including freeing up allocated memory */
 int finalise(const t_param* params, t_speed** cells_ptr, t_speed** tmp_cells_ptr,
-             int** obstacles_ptr, float** av_vels_ptr);
+             int** obstacles_ptr, float** av_vels_ptr, int nprocs, int rank);
 
 /* Sum all the densities in the grid.
 ** The total should remain constant from one timestep to the next. */
@@ -136,6 +141,12 @@ void usage(const char* exe);
 */
 int main(int argc, char* argv[])
 {
+
+  MPI_Init(&argc, &argv);
+  int nprocs, rank;
+  MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
   char*    paramfile = NULL;    /* name of the input parameter file */
   char*    obstaclefile = NULL; /* name of a the input obstacle file */
   t_param  params;              /* struct to hold parameter values */
@@ -160,8 +171,19 @@ int main(int argc, char* argv[])
     obstaclefile = argv[2];
   }
 
+  int slicesPerRank = params -> nx / nprocs;
+
+  if (params -> nx % nprocs != 0)
+    slicesPerRank++;
+
+  int start = rank * slicesPerRank;
+  int end = start + slicesPerRank;
+
+  if (rank == nprocs - 1)
+    end = params -> nx; 
+
   /* initialise our data structures and load values from file */
-  initialise(paramfile, obstaclefile, &params, &cells, &tmp_cells, &obstacles, &av_vels);
+  initialise(paramfile, obstaclefile, &params, &cells, &tmp_cells, &obstacles, &av_vels, nprocs, rank, slicesPerRank, start, end);
 
   /* iterate for maxIters timesteps */
   gettimeofday(&timstr, NULL);
@@ -169,8 +191,9 @@ int main(int argc, char* argv[])
 
   for (int tt = 0; tt < params.maxIters; tt++)
   {
-    timestep(params, cells, tmp_cells, obstacles);
+    timestep(params, cells, tmp_cells, obstacles, nprocs, rank, slicesPerRank, start, end);
     swap_cells(&cells, &tmp_cells);
+    halo_exchange(cells, nprocs, rank, slicesPerRank, start, end);
     __assume_aligned(av_vels, 64);
     av_vels[tt] = av_velocity(params, cells, obstacles);
     #ifdef DEBUG
@@ -197,6 +220,8 @@ int main(int argc, char* argv[])
   write_values(params, cells, obstacles, av_vels);
   finalise(&params, &cells, &tmp_cells, &obstacles, &av_vels);
 
+  MPI_Finalize();
+
   return EXIT_SUCCESS;
 }
 
@@ -206,10 +231,73 @@ void swap_cells(t_speed** __restrict__ cells, t_speed** __restrict__ tmp_cells) 
   *tmp_cells = aux;
 }
 
-int timestep(const t_param params, t_speed* __restrict__ cells, t_speed* __restrict__ tmp_cells, int* __restrict__ obstacles)
-{ 
-  // TODO: optimise this
-  accelerate_flow_cells(params, cells, tmp_cells, obstacles);
+void halo_exchange(t_speed** cells, int nprocs, int rank, int slicesPerRank, int start, int end) {
+
+  // Send right, recieve left
+
+  MPI_Sendrecv(cells -> speeds0[end - 1], 1, MPI_DOUBLE, rank + 1, 0,
+               cells -> speeds0[start - 1], 1, MPI_DOUBLE, rank - 1, 0, 
+               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  MPI_Sendrecv(cells -> speeds1[end - 1], 1, MPI_DOUBLE, rank + 1, 0,
+               cells -> speeds1[start - 1], 1, MPI_DOUBLE, rank - 1, 0, 
+               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  MPI_Sendrecv(cells -> speeds2[end - 1], 1, MPI_DOUBLE, rank + 1, 0,
+               cells -> speeds2[start - 1], 1, MPI_DOUBLE, rank - 1, 0, 
+               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  MPI_Sendrecv(cells -> speeds3[end - 1], 1, MPI_DOUBLE, rank + 1, 0,
+               cells -> speeds3[start - 1], 1, MPI_DOUBLE, rank - 1, 0, 
+               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  MPI_Sendrecv(cells -> speeds4[end - 1], 1, MPI_DOUBLE, rank + 1, 0,
+               cells -> speeds4[start - 1], 1, MPI_DOUBLE, rank - 1, 0, 
+               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  MPI_Sendrecv(cells -> speeds5[end - 1], 1, MPI_DOUBLE, rank + 1, 0,
+               cells -> speeds5[start - 1], 1, MPI_DOUBLE, rank - 1, 0, 
+               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  MPI_Sendrecv(cells -> speeds6[end - 1], 1, MPI_DOUBLE, rank + 1, 0,
+               cells -> speeds6[start - 1], 1, MPI_DOUBLE, rank - 1, 0, 
+               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  MPI_Sendrecv(cells -> speeds7[end - 1], 1, MPI_DOUBLE, rank + 1, 0,
+               cells -> speeds7[start - 1], 1, MPI_DOUBLE, rank - 1, 0, 
+               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  MPI_Sendrecv(cells -> speeds0[end - 1], 1, MPI_DOUBLE, rank + 1, 0,
+  cells -> speeds0[start - 1], 1, MPI_DOUBLE, rank - 1, 0, 
+  MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+  // Send left, recieve right
+
+  MPI_Sendrecv(cells -> speeds0[start], 1, MPI_DOUBLE, rank - 1, 0,
+               cells -> speeds0[end], 1, MPI_DOUBLE, rank + 1, 0, 
+               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  MPI_Sendrecv(cells -> speeds1[start], 1, MPI_DOUBLE, rank - 1, 0,
+               cells -> speeds1[end], 1, MPI_DOUBLE, rank + 1, 0, 
+               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  MPI_Sendrecv(cells -> speeds2[start], 1, MPI_DOUBLE, rank - 1, 0,
+               cells -> speeds2[end], 1, MPI_DOUBLE, rank + 1, 0, 
+               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  MPI_Sendrecv(cells -> speeds3[start], 1, MPI_DOUBLE, rank - 1, 0,
+               cells -> speeds3[end], 1, MPI_DOUBLE, rank + 1, 0, 
+               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  MPI_Sendrecv(cells -> speeds4[start], 1, MPI_DOUBLE, rank - 1, 0,
+               cells -> speeds4[end], 1, MPI_DOUBLE, rank + 1, 0, 
+               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  MPI_Sendrecv(cells -> speeds5[start], 1, MPI_DOUBLE, rank - 1, 0,
+               cells -> speeds5[end], 1, MPI_DOUBLE, rank + 1, 0, 
+               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  MPI_Sendrecv(cells -> speeds6[start], 1, MPI_DOUBLE, rank - 1, 0,
+               cells -> speeds6[end], 1, MPI_DOUBLE, rank + 1, 0, 
+               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  MPI_Sendrecv(cells -> speeds7[start], 1, MPI_DOUBLE, rank - 1, 0,
+               cells -> speeds7[end], 1, MPI_DOUBLE, rank + 1, 0, 
+               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  MPI_Sendrecv(cells -> speeds8[start], 1, MPI_DOUBLE, rank - 1, 0,
+               cells -> speeds8[end], 1, MPI_DOUBLE, rank + 1, 0, 
+               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+}
+
+int timestep(const t_param params, t_speed* __restrict__ cells, t_speed* __restrict__ tmp_cells, int* __restrict__ obstacles, int nprocs, int rank, int slicesPerRank, int start, int end)
+{
+  if (rank == params -> ny - 2)
+    accelerate_flow_cells(params, cells, tmp_cells, obstacles);
 
   __assume_aligned(cells->speeds0, 64);
   __assume_aligned(cells->speeds1, 64);
@@ -232,8 +320,7 @@ int timestep(const t_param params, t_speed* __restrict__ cells, t_speed* __restr
   __assume((params.nx)%2==0);
   __assume((params.ny)%2==0);
   
-  #pragma omp parallel for 
-  for (int jj = 0; jj < params.ny; jj++){
+  for (int jj = start; jj < end; jj++){
     #pragma vector aligned
     #pragma ivdep
     #pragma omp simd
@@ -454,7 +541,8 @@ float av_velocity(const t_param params, t_speed* __restrict__ cells, int* __rest
 
 int initialise(const char* paramfile, const char* obstaclefile,
                t_param* params, t_speed** cells_ptr, t_speed** tmp_cells_ptr,
-               int** obstacles_ptr, float** av_vels_ptr)
+               int** obstacles_ptr, float** av_vels_ptr,
+               int nprocs, int rank, int slicesPerRank, int start, int end)
 {
   char   message[1024];  /* message buffer */
   FILE*   fp;            /* file pointer */
@@ -523,6 +611,7 @@ int initialise(const char* paramfile, const char* obstaclefile,
   */
 
   /* main grid */
+
   *cells_ptr = (t_speed*)_mm_malloc(sizeof(t_speed), 64);
 
   float *s0, *s1, *s2, *s3, *s4, *s5, *s6, *s7, *s8;
@@ -583,8 +672,8 @@ int initialise(const char* paramfile, const char* obstaclefile,
 
   /* initialise densities */
   float w0 = params->density * 4.f / 9.f;
-  float w1 = params->density      / 9.f;
-  float w2 = params->density      / 36.f;
+  float w1 = params->density       / 9.f;
+  float w2 = params->density       / 36.f;
   
   /* open the obstacle data file */
   fp = fopen(obstaclefile, "r");
@@ -595,8 +684,7 @@ int initialise(const char* paramfile, const char* obstaclefile,
     die(message, __LINE__, __FILE__);
   }
 
-  #pragma omp parallel for
-  for (int jj = 0; jj < params->ny; jj++)
+  for (int jj = start; jj < end; jj++)
   {
     for (int ii = 0; ii < params->nx; ii++)
     {
@@ -643,7 +731,8 @@ int initialise(const char* paramfile, const char* obstaclefile,
 }
 
 int finalise(const t_param* params, t_speed** cells_ptr, t_speed** tmp_cells_ptr,
-             int** obstacles_ptr, float** av_vels_ptr)
+             int** obstacles_ptr, float** av_vels_ptr, 
+             int nprocs, int rank)
 {
   /*
   ** free up allocated memory

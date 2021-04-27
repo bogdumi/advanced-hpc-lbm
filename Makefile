@@ -4,6 +4,10 @@ EXE=d2q9-bgk
 
 CC=mpiicc
 CFLAGS= -std=c99 -Wall -O3 -march=broadwell -restrict -qopt-report=5 -qopt-report-phase=vec -qopenmp
+
+# CC=mpicc
+# CFLAGS= -std=c99 -Wall -O3 -march=broadwell -Wrestrict -fopenmp -fsanitize=address
+
 LIBS = -lm
 
 FINAL_STATE_FILE=./final_state.dat

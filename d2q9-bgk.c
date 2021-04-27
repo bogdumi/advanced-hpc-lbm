@@ -115,7 +115,8 @@ int rebound_cells(const t_param params, t_speed* __restrict__ cells, t_speed* __
 int collision_cells(const t_param params, t_speed* __restrict__ cells, t_speed* __restrict__ tmp_cells, int* __restrict__ obstacles, int c);
 
 void swap_cells(t_speed** __restrict__ cells, t_speed** __restrict__ tmp_cells);
-void halo_exchange(t_speed* __restrict__ cells, int nprocs, int rank, int slicesPerRank, int start, int end);
+void halo_exchange(t_speed* __restrict__ cells, int nprocs, int rank, int slicesPerRank, int start, int end, float *sendBuf, float *recvBuf, t_param params);
+void gather(t_speed* __restrict__ cells, float* av_vels, int nprocs, int rank, int slicesPerRank, int start, int end);
 
 /* finalise, including freeing up allocated memory */
 int finalise(const t_param* params, t_speed** cells_ptr, t_speed** tmp_cells_ptr,
@@ -184,6 +185,7 @@ int main(int argc, char* argv[])
 
   /* initialise our data structures and load values from file */
   initialise(paramfile, obstaclefile, &params, &cells, &tmp_cells, &obstacles, &av_vels, nprocs, rank, slicesPerRank, start, end);
+  float sendBuf[9], recvBuf[9];
 
   /* iterate for maxIters timesteps */
   gettimeofday(&timstr, NULL);
@@ -193,7 +195,7 @@ int main(int argc, char* argv[])
   {
     timestep(params, cells, tmp_cells, obstacles, nprocs, rank, slicesPerRank, start, end);
     swap_cells(&cells, &tmp_cells);
-    halo_exchange(cells, nprocs, rank, slicesPerRank, start, end);
+    halo_exchange(cells, nprocs, rank, slicesPerRank, start, end, sendBuf, recvBuf, params);
     __assume_aligned(av_vels, 64);
     av_vels[tt] = av_velocity(params, cells, obstacles);
     #ifdef DEBUG
@@ -202,6 +204,8 @@ int main(int argc, char* argv[])
     printf("tot density: %.12E\n", total_density(params, cells));
     #endif
   }
+
+  gather(cells, av_vels, nprocs, rank, slicesPerRank, start, end);
 
   gettimeofday(&timstr, NULL);
   toc = timstr.tv_sec + (timstr.tv_usec / 1000000.0);
@@ -231,67 +235,85 @@ void swap_cells(t_speed** __restrict__ cells, t_speed** __restrict__ tmp_cells) 
   *tmp_cells = aux;
 }
 
-void halo_exchange(t_speed* cells, int nprocs, int rank, int slicesPerRank, int start, int end) {
+void halo_exchange(t_speed* cells, int nprocs, int rank, int slicesPerRank, int start, int end, float *sendBuf, float *recvBuf, t_param params) {
+
+  int to = 0, from = 0, leftSlice = 0, rightSlice = 0;
 
   // Send right, recieve left
+  if (rank != 0) {
+    from = rank - 1;
+  } else {
+    from = nprocs - 1;
+  }
+  if (rank != nprocs - 1) {
+    to = rank + 1;
+  } else {
+    to = 0;
+  }
 
-  MPI_Sendrecv(&cells -> speeds0[end - 1], 1, MPI_DOUBLE, rank + 1, 0,
-               &cells -> speeds0[start - 1], 1, MPI_DOUBLE, rank - 1, 0, 
+  leftSlice = (start + params.ny - 1) % params.ny;
+  rightSlice = end % params.ny;
+
+  sendBuf[0] = cells -> speeds0[end - 1];
+  sendBuf[1] = cells -> speeds1[end - 1];
+  sendBuf[2] = cells -> speeds2[end - 1];
+  sendBuf[3] = cells -> speeds3[end - 1];
+  sendBuf[4] = cells -> speeds4[end - 1];
+  sendBuf[5] = cells -> speeds5[end - 1];
+  sendBuf[6] = cells -> speeds6[end - 1];
+  sendBuf[7] = cells -> speeds7[end - 1];
+  sendBuf[8] = cells -> speeds8[end - 1];
+
+  MPI_Sendrecv(sendBuf, 9, MPI_FLOAT, to, 0,
+               recvBuf, 9, MPI_FLOAT, from, 0, 
                MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-  MPI_Sendrecv(&cells -> speeds1[end - 1], 1, MPI_DOUBLE, rank + 1, 0,
-               &cells -> speeds1[start - 1], 1, MPI_DOUBLE, rank - 1, 0, 
-               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-  MPI_Sendrecv(&cells -> speeds2[end - 1], 1, MPI_DOUBLE, rank + 1, 0,
-               &cells -> speeds2[start - 1], 1, MPI_DOUBLE, rank - 1, 0, 
-               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-  MPI_Sendrecv(&cells -> speeds3[end - 1], 1, MPI_DOUBLE, rank + 1, 0,
-               &cells -> speeds3[start - 1], 1, MPI_DOUBLE, rank - 1, 0, 
-               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-  MPI_Sendrecv(&cells -> speeds4[end - 1], 1, MPI_DOUBLE, rank + 1, 0,
-               &cells -> speeds4[start - 1], 1, MPI_DOUBLE, rank - 1, 0, 
-               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-  MPI_Sendrecv(&cells -> speeds5[end - 1], 1, MPI_DOUBLE, rank + 1, 0,
-               &cells -> speeds5[start - 1], 1, MPI_DOUBLE, rank - 1, 0, 
-               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-  MPI_Sendrecv(&cells -> speeds6[end - 1], 1, MPI_DOUBLE, rank + 1, 0,
-               &cells -> speeds6[start - 1], 1, MPI_DOUBLE, rank - 1, 0, 
-               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-  MPI_Sendrecv(&cells -> speeds7[end - 1], 1, MPI_DOUBLE, rank + 1, 0,
-               &cells -> speeds7[start - 1], 1, MPI_DOUBLE, rank - 1, 0, 
-               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-  MPI_Sendrecv(&cells -> speeds0[end - 1], 1, MPI_DOUBLE, rank + 1, 0,
-               &cells -> speeds0[start - 1], 1, MPI_DOUBLE, rank - 1, 0, 
-               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+  cells -> speeds0[leftSlice] = recvBuf[0];
+  cells -> speeds1[leftSlice] = recvBuf[1];
+  cells -> speeds2[leftSlice] = recvBuf[2];
+  cells -> speeds3[leftSlice] = recvBuf[3];
+  cells -> speeds4[leftSlice] = recvBuf[4];
+  cells -> speeds5[leftSlice] = recvBuf[5];
+  cells -> speeds6[leftSlice] = recvBuf[6];
+  cells -> speeds7[leftSlice] = recvBuf[7];
+  cells -> speeds8[leftSlice] = recvBuf[8];
 
   // Send left, recieve right
 
-  MPI_Sendrecv(&cells -> speeds0[start], 1, MPI_DOUBLE, rank - 1, 0,
-               &cells -> speeds0[end], 1, MPI_DOUBLE, rank + 1, 0, 
+  if (rank != 0) {
+    to = rank - 1;
+  } else {
+    to = nprocs - 1;
+  }
+  if (rank != nprocs - 1) {
+    from = rank + 1;
+  } else {
+    from = 0;
+  }
+
+  sendBuf[0] = cells -> speeds0[start];
+  sendBuf[1] = cells -> speeds1[start];
+  sendBuf[2] = cells -> speeds2[start];
+  sendBuf[3] = cells -> speeds3[start];
+  sendBuf[4] = cells -> speeds4[start];
+  sendBuf[5] = cells -> speeds5[start];
+  sendBuf[6] = cells -> speeds6[start];
+  sendBuf[7] = cells -> speeds7[start];
+  sendBuf[8] = cells -> speeds8[start];
+
+  MPI_Sendrecv(sendBuf, 9, MPI_FLOAT, to, 0,
+               recvBuf, 9, MPI_FLOAT, from, 0, 
                MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-  MPI_Sendrecv(&cells -> speeds1[start], 1, MPI_DOUBLE, rank - 1, 0,
-               &cells -> speeds1[end], 1, MPI_DOUBLE, rank + 1, 0, 
-               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-  MPI_Sendrecv(&cells -> speeds2[start], 1, MPI_DOUBLE, rank - 1, 0,
-               &cells -> speeds2[end], 1, MPI_DOUBLE, rank + 1, 0, 
-               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-  MPI_Sendrecv(&cells -> speeds3[start], 1, MPI_DOUBLE, rank - 1, 0,
-               &cells -> speeds3[end], 1, MPI_DOUBLE, rank + 1, 0, 
-               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-  MPI_Sendrecv(&cells -> speeds4[start], 1, MPI_DOUBLE, rank - 1, 0,
-               &cells -> speeds4[end], 1, MPI_DOUBLE, rank + 1, 0, 
-               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-  MPI_Sendrecv(&cells -> speeds5[start], 1, MPI_DOUBLE, rank - 1, 0,
-               &cells -> speeds5[end], 1, MPI_DOUBLE, rank + 1, 0, 
-               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-  MPI_Sendrecv(&cells -> speeds6[start], 1, MPI_DOUBLE, rank - 1, 0,
-               &cells -> speeds6[end], 1, MPI_DOUBLE, rank + 1, 0, 
-               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-  MPI_Sendrecv(&cells -> speeds7[start], 1, MPI_DOUBLE, rank - 1, 0,
-               &cells -> speeds7[end], 1, MPI_DOUBLE, rank + 1, 0, 
-               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-  MPI_Sendrecv(&cells -> speeds8[start], 1, MPI_DOUBLE, rank - 1, 0,
-               &cells -> speeds8[end], 1, MPI_DOUBLE, rank + 1, 0, 
-               MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+  
+  cells -> speeds0[rightSlice] = recvBuf[0];
+  cells -> speeds1[rightSlice] = recvBuf[1];
+  cells -> speeds2[rightSlice] = recvBuf[2];
+  cells -> speeds3[rightSlice] = recvBuf[3];
+  cells -> speeds4[rightSlice] = recvBuf[4];
+  cells -> speeds5[rightSlice] = recvBuf[5];
+  cells -> speeds6[rightSlice] = recvBuf[6];
+  cells -> speeds7[rightSlice] = recvBuf[7];
+  cells -> speeds8[rightSlice] = recvBuf[8];
 }
 
 int timestep(const t_param params, t_speed* __restrict__ cells, t_speed* __restrict__ tmp_cells, int* __restrict__ obstacles, int nprocs, int rank, int slicesPerRank, int start, int end)
@@ -537,6 +559,17 @@ float av_velocity(const t_param params, t_speed* __restrict__ cells, int* __rest
   }
 
   return tot_u / (float)tot_cells;
+}
+
+void gather(t_speed* __restrict__ cells, float* av_vels, int nprocs, int rank, int slicesPerRank, int start, int end) {
+  t_speed* sendBuf = cells + start;
+  
+  MPI_Gather(sendBuf, (end - start + 1) * slicesPerRank, MPI_FLOAT, 
+             cells, (end - start + 1) * slicesPerRank, MPI_FLOAT, 
+             0, MPI_COMM_WORLD);
+  if (rank == 0) {
+    printf("Recv!\n");
+  }
 }
 
 int initialise(const char* paramfile, const char* obstaclefile,

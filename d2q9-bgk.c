@@ -127,10 +127,10 @@ int finalise(const t_param* params, t_speed** cells_ptr, t_speed** tmp_cells_ptr
 float total_density(const t_param params, t_speed* cells);
 
 /* compute average velocity */
-float av_velocity(const t_param params, t_speed* __restrict__ cells, int* __restrict__ obstacles);
+float av_velocity(const t_param params, t_speed* __restrict__ cells, int* __restrict__ obstacles, int start, int end, int nprocs, int rank);
 
 /* calculate Reynolds number */
-float calc_reynolds(const t_param params, t_speed* cells, int* obstacles);
+float calc_reynolds(const t_param params, t_speed* cells, int* obstacles, int start, int end, int nprocs, int rank);
 
 /* utility functions */
 void die(const char* message, const int line, const char* file);
@@ -154,7 +154,7 @@ int main(int argc, char* argv[])
   t_speed* cells     = NULL;    /* grid containing fluid densities */
   t_speed* tmp_cells = NULL;    /* scratch space */
   int*     obstacles = NULL;    /* grid indicating which cells are blocked */
-  float* av_vels   = NULL;     /* a record of the av. velocity computed for each timestep */
+  float* av_vels   = NULL;      /* a record of the av. velocity computed for each timestep */
   struct timeval timstr;        /* structure to hold elapsed time */
   struct rusage ru;             /* structure to hold CPU time--system and user */
   double tic, toc;              /* floating point numbers to calculate elapsed wallclock time */
@@ -172,16 +172,16 @@ int main(int argc, char* argv[])
     obstaclefile = argv[2];
   }
 
-  int slicesPerRank = params.nx / nprocs;
+  int slicesPerRank = params.ny / nprocs;
 
-  if (params.nx % nprocs != 0)
+  if (params.ny % nprocs != 0)
     slicesPerRank++;
 
   int start = rank * slicesPerRank;
   int end = start + slicesPerRank;
 
   if (rank == nprocs - 1)
-    end = params.nx; 
+    end = params.ny; 
 
   /* initialise our data structures and load values from file */
   initialise(paramfile, obstaclefile, &params, &cells, &tmp_cells, &obstacles, &av_vels, nprocs, rank, slicesPerRank, start, end);
@@ -197,7 +197,7 @@ int main(int argc, char* argv[])
     swap_cells(&cells, &tmp_cells);
     halo_exchange(cells, nprocs, rank, slicesPerRank, start, end, sendBuf, recvBuf, params);
     __assume_aligned(av_vels, 64);
-    av_vels[tt] = av_velocity(params, cells, obstacles);
+    av_vels[tt] = av_velocity(params, cells, obstacles, start, end, nprocs, rank);
     #ifdef DEBUG
     printf("==timestep: %d==\n", tt);
     printf("av velocity: %.12E\n", av_vels[tt]);
@@ -216,12 +216,14 @@ int main(int argc, char* argv[])
   systim = timstr.tv_sec + (timstr.tv_usec / 1000000.0);
 
   /* write final values and free memory */
-  printf("==done==\n");
-  printf("Reynolds number:\t\t%.12E\n", calc_reynolds(params, cells, obstacles));
-  printf("Elapsed time:\t\t\t%.6lf (s)\n", toc - tic);
-  printf("Elapsed user CPU time:\t\t%.6lf (s)\n", usrtim);
-  printf("Elapsed system CPU time:\t%.6lf (s)\n", systim);
-  write_values(params, cells, obstacles, av_vels);
+  if (rank == 0){
+    printf("==done==\n");
+    printf("Reynolds number:\t\t%.12E\n", calc_reynolds(params, cells, obstacles, start, end, nprocs, rank));
+    printf("Elapsed time:\t\t\t%.6lf (s)\n", toc - tic);
+    printf("Elapsed user CPU time:\t\t%.6lf (s)\n", usrtim);
+    printf("Elapsed system CPU time:\t%.6lf (s)\n", systim);
+    write_values(params, cells, obstacles, av_vels);
+  }
   finalise(&params, &cells, &tmp_cells, &obstacles, &av_vels, nprocs, rank);
 
   MPI_Finalize();
@@ -519,17 +521,17 @@ int accelerate_flow_cells(const t_param params, t_speed* __restrict__ cells, t_s
   return EXIT_SUCCESS;
 }
 
-float av_velocity(const t_param params, t_speed* __restrict__ cells, int* __restrict__ obstacles)
+float av_velocity(const t_param params, t_speed* __restrict__ cells, int* __restrict__ obstacles, int start, int end, int nprocs, int rank)
 {
   int    tot_cells = 0;  /* no. of cells used in calculation */
-  float tot_u;          /* accumulated magnitudes of velocity for each cell */
+  float  tot_u;          /* accumulated magnitudes of velocity for each cell */
 
   /* initialise */
   tot_u = 0.f;
 
   /* loop over all non-blocked cells */
-  #pragma omp parallel for reduction(+:tot_u) reduction(+:tot_cells)
-  for (int jj = 0; jj < params.ny; jj++)
+  // #pragma omp parallel for reduction(+:tot_u) reduction(+:tot_cells)
+  for (int jj = start; jj < end; jj++)
   {
     #pragma vector aligned
     #pragma ivdep
@@ -558,7 +560,14 @@ float av_velocity(const t_param params, t_speed* __restrict__ cells, int* __rest
     }
   }
 
-  return tot_u / (float)tot_cells;
+  float tot_u_root, tot_cells_root;
+
+  MPI_Reduce(&tot_u, &tot_u_root, 1, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+  MPI_Reduce(&tot_cells, &tot_cells_root, 1, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+
+  if(rank == 0)
+    return tot_u / (float)tot_cells;
+  return 0;
 }
 
 void gather(t_speed* __restrict__ cells, float* av_vels, int nprocs, int rank, int slicesPerRank, int start, int end) {
@@ -807,11 +816,11 @@ int finalise(const t_param* params, t_speed** cells_ptr, t_speed** tmp_cells_ptr
 }
 
 
-float calc_reynolds(const t_param params, t_speed* cells, int* obstacles)
+float calc_reynolds(const t_param params, t_speed* cells, int* obstacles, int start, int end, int nprocs, int rank)
 {
   const float viscosity = 1.f / 6.f * (2.f / params.omega - 1.f);
 
-  return av_velocity(params, cells, obstacles) * params.reynolds_dim / viscosity;
+  return av_velocity(params, cells, obstacles, start, end, nprocs, rank) * params.reynolds_dim / viscosity;
 }
 
 float total_density(const t_param params, t_speed* cells)

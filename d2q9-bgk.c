@@ -58,7 +58,6 @@
 #include <malloc.h>
 #include <mpi.h>
 
-#define MAINRANK        0
 #define NSPEEDS         9
 #define FINALSTATEFILE  "final_state.dat"
 #define AVVELSFILE      "av_vels.dat"
@@ -97,7 +96,7 @@ typedef struct
 int initialise(const char* paramfile, const char* obstaclefile,
                t_param* params, t_speed** cells_ptr, t_speed** tmp_cells_ptr,
                int** obstacles_ptr, float** av_vels_ptr, 
-               int nprocs, int rank, int slicesPerRank, int start, int end);
+               int* nprocs, int* rank, int* slicesPerRank, int* start, int* end);
 
 /*
 ** The main calculation methods.
@@ -116,7 +115,7 @@ int collision_cells(const t_param params, t_speed* __restrict__ cells, t_speed* 
 
 void swap_cells(t_speed** __restrict__ cells, t_speed** __restrict__ tmp_cells);
 void halo_exchange(t_speed* __restrict__ cells, int nprocs, int rank, int slicesPerRank, int start, int end, float *sendBuf, float *recvBuf, t_param params);
-void gather(t_speed* __restrict__ cells, float* av_vels, int nprocs, int rank, int slicesPerRank, int start, int end);
+void gather(const t_param params, t_speed* __restrict__ cells, t_speed* __restrict__ tmp_cells, float* av_vels, int nprocs, int rank, int slicesPerRank, int start, int end);
 
 /* finalise, including freeing up allocated memory */
 int finalise(const t_param* params, t_speed** cells_ptr, t_speed** tmp_cells_ptr,
@@ -154,12 +153,11 @@ int main(int argc, char* argv[])
   t_speed* cells     = NULL;    /* grid containing fluid densities */
   t_speed* tmp_cells = NULL;    /* scratch space */
   int*     obstacles = NULL;    /* grid indicating which cells are blocked */
-  float* av_vels   = NULL;      /* a record of the av. velocity computed for each timestep */
-  struct timeval timstr;        /* structure to hold elapsed time */
-  struct rusage ru;             /* structure to hold CPU time--system and user */
-  double tic, toc;              /* floating point numbers to calculate elapsed wallclock time */
-  double usrtim;                /* floating point number to record elapsed user CPU time */
-  double systim;                /* floating point number to record elapsed system CPU time */
+  float* av_vels   = NULL;     /* a record of the av. velocity computed for each timestep */
+  struct timeval timstr;                                                             /* structure to hold elapsed time */
+  double tot_tic, tot_toc, init_tic, init_toc, comp_tic, comp_toc, col_tic, col_toc; /* floating point numbers to calculate elapsed wallclock time */
+  float sendBuf[9], recvBuf[9];
+  int slicesPerRank, start, end;
 
   /* parse the command line */
   if (argc != 3)
@@ -172,24 +170,16 @@ int main(int argc, char* argv[])
     obstaclefile = argv[2];
   }
 
-  int slicesPerRank = params.ny / nprocs;
-
-  if (params.ny % nprocs != 0)
-    slicesPerRank++;
-
-  int start = rank * slicesPerRank;
-  int end = start + slicesPerRank;
-
-  if (rank == nprocs - 1)
-    end = params.ny; 
-
-  /* initialise our data structures and load values from file */
-  initialise(paramfile, obstaclefile, &params, &cells, &tmp_cells, &obstacles, &av_vels, nprocs, rank, slicesPerRank, start, end);
-  float sendBuf[9], recvBuf[9];
-
-  /* iterate for maxIters timesteps */
+  /* Total/init time starts here: initialise our data structures and load values from file */
   gettimeofday(&timstr, NULL);
-  tic = timstr.tv_sec + (timstr.tv_usec / 1000000.0);
+  tot_tic = timstr.tv_sec + (timstr.tv_usec / 1000000.0);
+  init_tic=tot_tic;
+  initialise(paramfile, obstaclefile, &params, &cells, &tmp_cells, &obstacles, &av_vels, &nprocs, &rank, &slicesPerRank, &start, &end);
+
+  /* Init time stops here, compute time starts*/
+  gettimeofday(&timstr, NULL);
+  init_toc = timstr.tv_sec + (timstr.tv_usec / 1000000.0);
+  comp_tic=init_toc;
 
   for (int tt = 0; tt < params.maxIters; tt++)
   {
@@ -205,23 +195,27 @@ int main(int argc, char* argv[])
     #endif
   }
 
-  gather(cells, av_vels, nprocs, rank, slicesPerRank, start, end);
-
+  /* Compute time stops here, collate time starts*/
   gettimeofday(&timstr, NULL);
-  toc = timstr.tv_sec + (timstr.tv_usec / 1000000.0);
-  getrusage(RUSAGE_SELF, &ru);
-  timstr = ru.ru_utime;
-  usrtim = timstr.tv_sec + (timstr.tv_usec / 1000000.0);
-  timstr = ru.ru_stime;
-  systim = timstr.tv_sec + (timstr.tv_usec / 1000000.0);
+  comp_toc = timstr.tv_sec + (timstr.tv_usec / 1000000.0);
+  col_tic=comp_toc;
+
+  // Collate data from ranks here 
+  gather(params, cells, tmp_cells, av_vels, nprocs, rank, slicesPerRank, start, end);
+
+  /* Total/collate time stops here.*/
+  gettimeofday(&timstr, NULL);
+  col_toc = timstr.tv_sec + (timstr.tv_usec / 1000000.0);
+  tot_toc = col_toc;
 
   /* write final values and free memory */
   if (rank == 0){
     printf("==done==\n");
     printf("Reynolds number:\t\t%.12E\n", calc_reynolds(params, cells, obstacles, start, end, nprocs, rank));
-    printf("Elapsed time:\t\t\t%.6lf (s)\n", toc - tic);
-    printf("Elapsed user CPU time:\t\t%.6lf (s)\n", usrtim);
-    printf("Elapsed system CPU time:\t%.6lf (s)\n", systim);
+    printf("Elapsed Init time:\t\t\t%.6lf (s)\n",    init_toc - init_tic);
+    printf("Elapsed Compute time:\t\t\t%.6lf (s)\n", comp_toc - comp_tic);
+    printf("Elapsed Collate time:\t\t\t%.6lf (s)\n", col_toc  - col_tic);
+    printf("Elapsed Total time:\t\t\t%.6lf (s)\n",   tot_toc  - tot_tic);
     write_values(params, cells, obstacles, av_vels);
   }
   finalise(&params, &cells, &tmp_cells, &obstacles, &av_vels, nprocs, rank);
@@ -307,6 +301,7 @@ void halo_exchange(t_speed* cells, int nprocs, int rank, int slicesPerRank, int 
                recvBuf, 9, MPI_FLOAT, from, 0, 
                MPI_COMM_WORLD, MPI_STATUS_IGNORE);
   
+
   cells -> speeds0[rightSlice] = recvBuf[0];
   cells -> speeds1[rightSlice] = recvBuf[1];
   cells -> speeds2[rightSlice] = recvBuf[2];
@@ -565,26 +560,36 @@ float av_velocity(const t_param params, t_speed* __restrict__ cells, int* __rest
   MPI_Reduce(&tot_u, &tot_u_root, 1, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
   MPI_Reduce(&tot_cells, &tot_cells_root, 1, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
 
-  if(rank == 0)
-    return tot_u / (float)tot_cells;
+  if (rank == 0)
+    return tot_u_root / (float)tot_cells_root;
   return 0;
 }
 
-void gather(t_speed* __restrict__ cells, float* av_vels, int nprocs, int rank, int slicesPerRank, int start, int end) {
-  t_speed* sendBuf = cells + start;
-  
-  MPI_Gather(sendBuf, (end - start + 1) * slicesPerRank, MPI_FLOAT, 
-             cells, (end - start + 1) * slicesPerRank, MPI_FLOAT, 
-             0, MPI_COMM_WORLD);
-  if (rank == 0) {
-    printf("Recv!\n");
-  }
+void gather(const t_param params, t_speed* __restrict__ cells, t_speed* __restrict__ tmp_cells, float* av_vels, int nprocs, int rank, int slicesPerRank, int start, int end) {
+  float* sendBuf = cells -> speeds0 + start;
+  MPI_Gather(sendBuf, (end - start) * params.nx, MPI_FLOAT, tmp_cells -> speeds0, (end - start) * params.nx, MPI_FLOAT, 0, MPI_COMM_WORLD);
+  sendBuf = cells -> speeds1 + start;
+  MPI_Gather(sendBuf, (end - start) * params.nx, MPI_FLOAT, tmp_cells -> speeds1, (end - start) * params.nx, MPI_FLOAT, 0, MPI_COMM_WORLD);
+  sendBuf = cells -> speeds2 + start;
+  MPI_Gather(sendBuf, (end - start) * params.nx, MPI_FLOAT, tmp_cells -> speeds2, (end - start) * params.nx, MPI_FLOAT, 0, MPI_COMM_WORLD);
+  sendBuf = cells -> speeds3 + start;
+  MPI_Gather(sendBuf, (end - start) * params.nx, MPI_FLOAT, tmp_cells -> speeds3, (end - start) * params.nx, MPI_FLOAT, 0, MPI_COMM_WORLD);
+  sendBuf = cells -> speeds4 + start;
+  MPI_Gather(sendBuf, (end - start) * params.nx, MPI_FLOAT, tmp_cells -> speeds4, (end - start) * params.nx, MPI_FLOAT, 0, MPI_COMM_WORLD);
+  sendBuf = cells -> speeds5 + start;
+  MPI_Gather(sendBuf, (end - start) * params.nx, MPI_FLOAT, tmp_cells -> speeds5, (end - start) * params.nx, MPI_FLOAT, 0, MPI_COMM_WORLD);
+  sendBuf = cells -> speeds6 + start;
+  MPI_Gather(sendBuf, (end - start) * params.nx, MPI_FLOAT, tmp_cells -> speeds6, (end - start) * params.nx, MPI_FLOAT, 0, MPI_COMM_WORLD);
+  sendBuf = cells -> speeds7 + start;
+  MPI_Gather(sendBuf, (end - start) * params.nx, MPI_FLOAT, tmp_cells -> speeds7, (end - start) * params.nx, MPI_FLOAT, 0, MPI_COMM_WORLD);
+  sendBuf = cells -> speeds8 + start;
+  MPI_Gather(sendBuf, (end - start) * params.nx, MPI_FLOAT, tmp_cells -> speeds8, (end - start) * params.nx, MPI_FLOAT, 0, MPI_COMM_WORLD);
 }
 
 int initialise(const char* paramfile, const char* obstaclefile,
                t_param* params, t_speed** cells_ptr, t_speed** tmp_cells_ptr,
                int** obstacles_ptr, float** av_vels_ptr,
-               int nprocs, int rank, int slicesPerRank, int start, int end)
+               int* nprocs, int* rank, int* slicesPerRank, int* start, int* end)
 {
   char   message[1024];  /* message buffer */
   FILE*   fp;            /* file pointer */
@@ -653,6 +658,18 @@ int initialise(const char* paramfile, const char* obstaclefile,
   */
 
   /* main grid */
+  
+
+  *slicesPerRank = params -> ny / *nprocs;
+
+  if ((params -> ny) % (*nprocs) != 0)
+    (*slicesPerRank)++;
+
+  *start = *rank * *slicesPerRank;
+  *end = *start + *slicesPerRank;
+
+  if (*rank == *nprocs - 1)
+    *end = params -> ny; 
 
   *cells_ptr = (t_speed*)_mm_malloc(sizeof(t_speed), 64);
 
@@ -726,7 +743,7 @@ int initialise(const char* paramfile, const char* obstaclefile,
     die(message, __LINE__, __FILE__);
   }
 
-  for (int jj = start; jj < end; jj++)
+  for (int jj = *start; jj < *end; jj++)
   {
     for (int ii = 0; ii < params->nx; ii++)
     {

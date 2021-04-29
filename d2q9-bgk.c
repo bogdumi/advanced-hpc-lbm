@@ -188,11 +188,11 @@ int main(int argc, char* argv[])
     halo_exchange(cells, nprocs, rank, slicesPerRank, start, end, sendBuf, recvBuf, params);
     __assume_aligned(av_vels, 64);
     av_vels[tt] = av_velocity(params, cells, obstacles, start, end, nprocs, rank);
-    #ifdef DEBUG
-    printf("==timestep: %d==\n", tt);
-    printf("av velocity: %.12E\n", av_vels[tt]);
-    printf("tot density: %.12E\n", total_density(params, cells));
-    #endif
+    if(rank == 0) {
+      printf("==timestep: %d==\n", tt);
+      printf("av velocity: %.12E\n", av_vels[tt]);
+      printf("tot density: %.12E\n", total_density(params, cells));
+    }
   }
 
   /* Compute time stops here, collate time starts*/
@@ -555,13 +555,16 @@ float av_velocity(const t_param params, t_speed* __restrict__ cells, int* __rest
     }
   }
 
-  float tot_u_root, tot_cells_root;
+  float tot_u_root = 0; 
+  int tot_cells_root = 0;
 
   MPI_Reduce(&tot_u, &tot_u_root, 1, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
-  MPI_Reduce(&tot_cells, &tot_cells_root, 1, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
+  MPI_Reduce(&tot_cells, &tot_cells_root, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
 
-  if (rank == 0)
+  if (rank == 0){
+    printf("tot_u: %.12E\n", tot_u);
     return tot_u_root / (float)tot_cells_root;
+  }
   return 0;
 }
 

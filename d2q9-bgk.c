@@ -63,8 +63,7 @@
 #define AVVELSFILE      "av_vels.dat"
 
 /* struct to hold the parameter values */
-typedef struct
-{
+typedef struct {
   int    nx;            /* no. of cells in x-direction */
   int    ny;            /* no. of cells in y-direction */
   int    maxIters;      /* no. of iterations */
@@ -75,8 +74,7 @@ typedef struct
 } t_param;
 
 /* struct to hold the 'speed' values */
-typedef struct
-{
+typedef struct {
   float* speeds0;
   float* speeds1;
   float* speeds2;
@@ -139,9 +137,7 @@ void usage(const char* exe);
 ** main program:
 ** initialise, timestep loop, finalise
 */
-int main(int argc, char* argv[])
-{
-
+int main(int argc, char* argv[]) {
   MPI_Init(&argc, &argv);
   int nprocs, rank;
   MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
@@ -160,12 +156,9 @@ int main(int argc, char* argv[])
   int slicesPerRank, start, end;
 
   /* parse the command line */
-  if (argc != 3)
-  {
+  if (argc != 3) {
     usage(argv[0]);
-  }
-  else
-  {
+  } else {
     paramfile = argv[1];
     obstaclefile = argv[2];
   }
@@ -181,18 +174,17 @@ int main(int argc, char* argv[])
   init_toc = timstr.tv_sec + (timstr.tv_usec / 1000000.0);
   comp_tic=init_toc;
 
-  for (int tt = 0; tt < params.maxIters; tt++)
-  {
+  for (int tt = 0; tt < params.maxIters; tt++) {
     timestep(params, cells, tmp_cells, obstacles, nprocs, rank, slicesPerRank, start, end);
     swap_cells(&cells, &tmp_cells);
     halo_exchange(cells, nprocs, rank, slicesPerRank, start, end, sendBuf, recvBuf, params);
     __assume_aligned(av_vels, 64);
     av_vels[tt] = av_velocity(params, cells, obstacles, start, end, nprocs, rank);
-    if(rank == 0) {
-      printf("==timestep: %d==\n", tt);
-      printf("av velocity: %.12E\n", av_vels[tt]);
-      printf("tot density: %.12E\n", total_density(params, cells));
-    }
+    // if(rank == 0) {
+    //   printf("==timestep: %d==\n", tt);
+    //   printf("av velocity: %.12E\n", av_vels[tt]);
+    //   printf("tot density: %.12E\n", total_density(params, cells));
+    // }
   }
 
   /* Compute time stops here, collate time starts*/
@@ -209,7 +201,7 @@ int main(int argc, char* argv[])
   tot_toc = col_toc;
 
   /* write final values and free memory */
-  if (rank == 0){
+  if (rank == 0) {
     printf("==done==\n");
     printf("Reynolds number:\t\t%.12E\n", calc_reynolds(params, cells, obstacles, start, end, nprocs, rank));
     printf("Elapsed Init time:\t\t\t%.6lf (s)\n",    init_toc - init_tic);
@@ -275,7 +267,6 @@ void halo_exchange(t_speed* cells, int nprocs, int rank, int slicesPerRank, int 
   cells -> speeds8[leftSlice] = recvBuf[8];
 
   // Send left, recieve right
-
   if (rank != 0) {
     to = rank - 1;
   } else {
@@ -315,8 +306,9 @@ void halo_exchange(t_speed* cells, int nprocs, int rank, int slicesPerRank, int 
 
 int timestep(const t_param params, t_speed* __restrict__ cells, t_speed* __restrict__ tmp_cells, int* __restrict__ obstacles, int nprocs, int rank, int slicesPerRank, int start, int end)
 {
-  if (rank == params.ny - 2)
+  if (rank == nprocs - 1) {
     accelerate_flow_cells(params, cells, tmp_cells, obstacles);
+  }
 
   __assume_aligned(cells->speeds0, 64);
   __assume_aligned(cells->speeds1, 64);
@@ -555,14 +547,13 @@ float av_velocity(const t_param params, t_speed* __restrict__ cells, int* __rest
     }
   }
 
-  float tot_u_root = 0; 
+  float tot_u_root = 0.f; 
   int tot_cells_root = 0;
 
   MPI_Reduce(&tot_u, &tot_u_root, 1, MPI_FLOAT, MPI_SUM, 0, MPI_COMM_WORLD);
   MPI_Reduce(&tot_cells, &tot_cells_root, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
 
-  if (rank == 0){
-    printf("tot_u: %.12E\n", tot_u);
+  if (rank == 0) {
     return tot_u_root / (float)tot_cells_root;
   }
   return 0;

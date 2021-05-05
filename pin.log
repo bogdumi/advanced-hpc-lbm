@@ -1,0 +1,2 @@
+Pin 3.0 kit 78231
+E:  The main thread of the application is a zombie thread. Pin can't attach to an application which its main thread is a zombie thread 

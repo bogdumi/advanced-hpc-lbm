@@ -12,4 +12,4 @@ module rm libs/cuda/9.0-gcc-5.4.0-2.26
 
 export OMP_PLACES=cores
 export OMP_PROC_BIND=close
-export I_MPI_PMI_LIBRARY=/usr/lib64/libpmi.so
+# export I_MPI_PMI_LIBRARY=/usr/lib64/libpmi.so

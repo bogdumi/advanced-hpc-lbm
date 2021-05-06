@@ -242,7 +242,7 @@ float timestep(const t_param params, t_speed* __restrict__ cells, t_speed* __res
 
     #pragma vector aligned
     #pragma ivdep
-    #pragma omp simd
+    // #pragma omp simd
     for (int ii = 0; ii < params.nx; ii++)
     {
       int c = ii + jj*params.nx;
@@ -266,10 +266,9 @@ float timestep(const t_param params, t_speed* __restrict__ cells, t_speed* __res
 
   }
 
-  // halo_exchange(cells, nprocs, rank, slicesPerRank, start, end, sendBuf1, recvBuf1, sendBuf2, recvBuf2, params);
-
   int toRight = 0, fromLeft = 0, toLeft = 0, fromRight = 0, leftSlice = 0, rightSlice = 0;
-  MPI_Request request1send, request2send, request1recv, request2recv;
+  MPI_Request request1send, request2send;
+  MPI_Request requestrecv[2];
 
   // Send right, recieve left
   // Send left, recieve right
@@ -315,10 +314,10 @@ float timestep(const t_param params, t_speed* __restrict__ cells, t_speed* __res
   MPI_Isend(sendBuf1, 9 * params.nx, MPI_FLOAT, toRight, 0, MPI_COMM_WORLD, &request1send);
   MPI_Isend(sendBuf2, 9 * params.nx, MPI_FLOAT, toLeft, 0, MPI_COMM_WORLD, &request2send);
 
-  MPI_Irecv(recvBuf1, 9 * params.nx, MPI_FLOAT, fromLeft, 0, MPI_COMM_WORLD, &request1recv);
-  MPI_Irecv(recvBuf2, 9 * params.nx, MPI_FLOAT, fromRight, 0, MPI_COMM_WORLD, &request2recv);
+  MPI_Irecv(recvBuf1, 9 * params.nx, MPI_FLOAT, fromLeft, 0, MPI_COMM_WORLD, requestrecv);
+  MPI_Irecv(recvBuf2, 9 * params.nx, MPI_FLOAT, fromRight, 0, MPI_COMM_WORLD, requestrecv + 1);
 
-  MPI_Wait(&request1recv, MPI_STATUS_IGNORE);
+  MPI_Waitall(2, requestrecv, MPI_STATUSES_IGNORE);
 
   memcpy(cells -> speeds0 + leftSlice * params.nx, recvBuf1 + params.nx * 0, params.nx * sizeof(float));
   memcpy(cells -> speeds1 + leftSlice * params.nx, recvBuf1 + params.nx * 1, params.nx * sizeof(float));
@@ -329,8 +328,6 @@ float timestep(const t_param params, t_speed* __restrict__ cells, t_speed* __res
   memcpy(cells -> speeds6 + leftSlice * params.nx, recvBuf1 + params.nx * 6, params.nx * sizeof(float));
   memcpy(cells -> speeds7 + leftSlice * params.nx, recvBuf1 + params.nx * 7, params.nx * sizeof(float));
   memcpy(cells -> speeds8 + leftSlice * params.nx, recvBuf1 + params.nx * 8, params.nx * sizeof(float));
-  
-  MPI_Wait(&request2recv, MPI_STATUS_IGNORE);
 
   memcpy(cells -> speeds0 + rightSlice * params.nx, recvBuf2 + params.nx * 0, params.nx * sizeof(float));
   memcpy(cells -> speeds1 + rightSlice * params.nx, recvBuf2 + params.nx * 1, params.nx * sizeof(float));
@@ -367,7 +364,7 @@ float timestep(const t_param params, t_speed* __restrict__ cells, t_speed* __res
   for (int jj = start; jj < end; jj++){
     #pragma vector aligned
     #pragma ivdep
-    // #pragma omp simd reduction (+:u_sqrt) reduction (+:tot_cells)
+    #pragma omp simd reduction (+:u_sqrt) reduction (+:tot_cells)
     for (int ii = 0; ii < params.nx; ii++){
       int c = jj*params.nx + ii;
       /* determine indices of axis-direction neighbours
@@ -421,32 +418,12 @@ float timestep(const t_param params, t_speed* __restrict__ cells, t_speed* __res
         /* compute local density total */
         float local_density = 0.f;
 
-        local_density += (tmp_cells -> speeds0[c] 
-                      + tmp_cells -> speeds1[c]
-                      + tmp_cells -> speeds2[c] 
-                      + tmp_cells -> speeds3[c] 
-                      + tmp_cells -> speeds4[c] 
-                      + tmp_cells -> speeds5[c] 
-                      + tmp_cells -> speeds6[c] 
-                      + tmp_cells -> speeds7[c] 
-                      + tmp_cells -> speeds8[c]);
+        local_density += (tmp_cells -> speeds0[c] + tmp_cells -> speeds1[c] + tmp_cells -> speeds2[c] + tmp_cells -> speeds3[c] + tmp_cells -> speeds4[c] + tmp_cells -> speeds5[c] + tmp_cells -> speeds6[c] + tmp_cells -> speeds7[c] + tmp_cells -> speeds8[c]);
 
         /* compute x velocity component */
-        float u_x = (tmp_cells -> speeds1[c] 
-                    + tmp_cells -> speeds5[c] 
-                    + tmp_cells -> speeds8[c] 
-                    - (tmp_cells -> speeds3[c] 
-                    + tmp_cells -> speeds6[c] 
-                    + tmp_cells -> speeds7[c])) 
-                    / local_density;
+        float u_x = (tmp_cells -> speeds1[c] + tmp_cells -> speeds5[c] + tmp_cells -> speeds8[c] - (tmp_cells -> speeds3[c] + tmp_cells -> speeds6[c] + tmp_cells -> speeds7[c])) / local_density;
         /* compute y velocity component */
-        float u_y = (tmp_cells -> speeds2[c] 
-                    + tmp_cells -> speeds5[c] 
-                    + tmp_cells -> speeds6[c] 
-                    - (tmp_cells -> speeds4[c] 
-                    + tmp_cells -> speeds7[c] 
-                    + tmp_cells -> speeds8[c])) 
-                    / local_density;
+        float u_y = (tmp_cells -> speeds2[c] + tmp_cells -> speeds5[c] + tmp_cells -> speeds6[c] - (tmp_cells -> speeds4[c] + tmp_cells -> speeds7[c] + tmp_cells -> speeds8[c])) / local_density;
 
         /* velocity squared */
         float u_sq = u_x * u_x + u_y * u_y;

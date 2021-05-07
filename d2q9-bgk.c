@@ -111,7 +111,7 @@ void gather(const t_param params, t_speed* __restrict__ cells, t_speed* __restri
 
 /* finalise, including freeing up allocated memory */
 int finalise(const t_param* params, t_speed** cells_ptr, t_speed** tmp_cells_ptr,
-             int** obstacles_ptr, float** av_vels_ptr, int nprocs, int rank);
+             int** obstacles_ptr, float** av_vels_ptr, float** av_vels_total_ptr, int nprocs, int rank);
 
 /* Sum all the densities in the grid.
 ** The total should remain constant from one timestep to the next. */
@@ -204,7 +204,15 @@ int main(int argc, char* argv[]) {
     printf("Elapsed Total time:\t\t\t%.6lf (s)\n",   tot_toc  - tot_tic);
     write_values(params, cells, obstacles, av_vels_total);
   }
-  finalise(&params, &cells, &tmp_cells, &obstacles, &av_vels, nprocs, rank);
+  _mm_free(sendBuf1);
+  _mm_free(sendBuf2);
+  _mm_free(recvBuf1);
+  _mm_free(recvBuf2);
+  sendBuf1 = NULL;
+  sendBuf2 = NULL;
+  recvBuf1 = NULL;
+  recvBuf2 = NULL;
+  finalise(&params, &cells, &tmp_cells, &obstacles, &av_vels, &av_vels_total, nprocs, rank);
 
   MPI_Finalize();
 
@@ -594,6 +602,11 @@ void gather(const t_param params, t_speed* __restrict__ cells, t_speed* __restri
     for (int i = 0; i < params.maxIters; i++)
       av_vels_total[i] = av_vels_total[i] / (float) tot_cells_grid;
   }
+
+  _mm_free(recvCount);
+  recvCount = NULL;
+  _mm_free(displCount);
+  displCount = NULL;
   return; 
 }
 
@@ -804,44 +817,47 @@ int initialise(const char* paramfile, const char* obstaclefile,
 }
 
 int finalise(const t_param* params, t_speed** cells_ptr, t_speed** tmp_cells_ptr,
-             int** obstacles_ptr, float** av_vels_ptr, 
+             int** obstacles_ptr, float** av_vels_ptr, float** av_vels_total_ptr,
              int nprocs, int rank)
 {
   /*
   ** free up allocated memory
   */
 
-  // _mm_free((*cells_ptr) -> speeds0);
-  // _mm_free((*cells_ptr) -> speeds1);
-  // _mm_free((*cells_ptr) -> speeds2);
-  // _mm_free((*cells_ptr) -> speeds3);
-  // _mm_free((*cells_ptr) -> speeds4);
-  // _mm_free((*cells_ptr) -> speeds5);
-  // _mm_free((*cells_ptr) -> speeds6);
-  // _mm_free((*cells_ptr) -> speeds7);
-  // _mm_free((*cells_ptr) -> speeds8);
+  _mm_free((*cells_ptr) -> speeds0);
+  _mm_free((*cells_ptr) -> speeds1);
+  _mm_free((*cells_ptr) -> speeds2);
+  _mm_free((*cells_ptr) -> speeds3);
+  _mm_free((*cells_ptr) -> speeds4);
+  _mm_free((*cells_ptr) -> speeds5);
+  _mm_free((*cells_ptr) -> speeds6);
+  _mm_free((*cells_ptr) -> speeds7);
+  _mm_free((*cells_ptr) -> speeds8);
 
-  // _mm_free(*cells_ptr);
-  // *cells_ptr = NULL;
+  _mm_free(*cells_ptr);
+  *cells_ptr = NULL;
 
-  // _mm_free((*tmp_cells_ptr) -> speeds0);
-  // _mm_free((*tmp_cells_ptr) -> speeds1);
-  // _mm_free((*tmp_cells_ptr) -> speeds2);
-  // _mm_free((*tmp_cells_ptr) -> speeds3);
-  // _mm_free((*tmp_cells_ptr) -> speeds4);
-  // _mm_free((*tmp_cells_ptr) -> speeds5);
-  // _mm_free((*tmp_cells_ptr) -> speeds6);
-  // _mm_free((*tmp_cells_ptr) -> speeds7);
-  // _mm_free((*tmp_cells_ptr) -> speeds8);
+  _mm_free((*tmp_cells_ptr) -> speeds0);
+  _mm_free((*tmp_cells_ptr) -> speeds1);
+  _mm_free((*tmp_cells_ptr) -> speeds2);
+  _mm_free((*tmp_cells_ptr) -> speeds3);
+  _mm_free((*tmp_cells_ptr) -> speeds4);
+  _mm_free((*tmp_cells_ptr) -> speeds5);
+  _mm_free((*tmp_cells_ptr) -> speeds6);
+  _mm_free((*tmp_cells_ptr) -> speeds7);
+  _mm_free((*tmp_cells_ptr) -> speeds8);
 
-  // _mm_free(*tmp_cells_ptr);
-  // *tmp_cells_ptr = NULL;
+  _mm_free(*tmp_cells_ptr);
+  *tmp_cells_ptr = NULL;
 
-  // free(*obstacles_ptr);
-  // *obstacles_ptr = NULL;
+  free(*obstacles_ptr);
+  *obstacles_ptr = NULL;
 
-  // _mm_free(*av_vels_ptr);
-  // *av_vels_ptr = NULL;
+  _mm_free(*av_vels_ptr);
+  *av_vels_ptr = NULL;
+
+  _mm_free(*av_vels_total_ptr);
+  *av_vels_total_ptr = NULL;
 
   return EXIT_SUCCESS;
 }

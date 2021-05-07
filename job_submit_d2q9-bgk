@@ -20,7 +20,7 @@ echo Slurm job ID is $SLURM_JOB_ID
 echo This job runs on the following machines:
 echo `echo $SLURM_JOB_NODELIST | uniq`
 
-for x in {1..112}
+for x in {68..112}
 do
     echo 'cores' + $x
     mpirun -np $x ./d2q9-bgk input_1024x1024.params obstacles_1024x1024.dat

@@ -3,14 +3,15 @@
 #SBATCH --job-name d2q9-bgk
 #SBATCH --nodes 4
 #SBATCH --ntasks-per-node 28
-#SBATCH --time 00:01:00
+#SBATCH --time 01:00:00
 #SBATCH --partition veryshort
 #SBATCH --reservation=COSC024002
 #SBATCH --account=COSC024002
 #SBATCH --output d2q9-bgk.out
-#SBATCH --exclude=compute086,compute087
+#SBATCH --exclude=compute087,compute088
 
 # export I_MPI_PMI_LIBRARY=/usr/lib64/libpmi.so
+export	MPICH_NEMESIS_ASYNC_PROGRESS=ML
 
 echo Running on host `hostname`
 echo Time is `date`
@@ -18,6 +19,12 @@ echo Directory is `pwd`
 echo Slurm job ID is $SLURM_JOB_ID
 echo This job runs on the following machines:
 echo `echo $SLURM_JOB_NODELIST | uniq`
+
+for x in {1..112}
+do
+    echo 'cores' + $x
+    mpirun -np $x ./d2q9-bgk input_1024x1024.params obstacles_1024x1024.dat
+done
 
 #! Run the executable
 # srun ./d2q9-bgk input_128x128.params obstacles_128x128.dat
@@ -30,7 +37,7 @@ echo `echo $SLURM_JOB_NODELIST | uniq`
 # mpiexec -n 112 ./d2q9-bgk input_128x128.params obstacles_128x128.dat
 # mpiexec -n 112 ./d2q9-bgk input_128x256.params obstacles_128x256.dat
 # mpiexec -n 112 ./d2q9-bgk input_256x256.params obstacles_256x256.dat
-mpiexec -n 112 ./d2q9-bgk input_1024x1024.params obstacles_1024x1024.dat
+# mpiexec -n 112 ./d2q9-bgk input_1024x1024.params obstacles_1024x1024.dat
 
 # srun amplxe-cl –c hotspots –r otrput ./d2q9-bgk input_128x128.params obstacles_128x128.dat
 # srun amplxe-cl –c hotspots –r otrput ./d2q9-bgk input_128x256.params obstacles_128x256.dat

@@ -11,7 +11,7 @@
 #SBATCH --exclude=compute087,compute088
 
 # export I_MPI_PMI_LIBRARY=/usr/lib64/libpmi.so
-export	MPICH_NEMESIS_ASYNC_PROGRESS=ML
+# export	MPICH_NEMESIS_ASYNC_PROGRESS=ML
 
 echo Running on host `hostname`
 echo Time is `date`
@@ -20,11 +20,11 @@ echo Slurm job ID is $SLURM_JOB_ID
 echo This job runs on the following machines:
 echo `echo $SLURM_JOB_NODELIST | uniq`
 
-for x in {68..112}
-do
-    echo 'cores' + $x
-    mpirun -np $x ./d2q9-bgk input_1024x1024.params obstacles_1024x1024.dat
-done
+# for x in {68..112}
+# do
+#     echo 'cores' + $x
+#     mpirun -np $x ./d2q9-bgk input_1024x1024.params obstacles_1024x1024.dat
+# done
 
 #! Run the executable
 # srun ./d2q9-bgk input_128x128.params obstacles_128x128.dat
@@ -34,10 +34,10 @@ done
 
 # mpiexec -n 112 amplxe-cl -quiet -collect hotspots -result-dir output ./d2q9-bgk input_128x128.params obstacles_128x128.dat
 
-# mpiexec -n 112 ./d2q9-bgk input_128x128.params obstacles_128x128.dat
+mpiexec -n 112 ./d2q9-bgk input_128x128.params obstacles_128x128.dat
 # mpiexec -n 112 ./d2q9-bgk input_128x256.params obstacles_128x256.dat
-# mpiexec -n 112 ./d2q9-bgk input_256x256.params obstacles_256x256.dat
-# mpiexec -n 112 ./d2q9-bgk input_1024x1024.params obstacles_1024x1024.dat
+mpiexec -n 112 ./d2q9-bgk input_256x256.params obstacles_256x256.dat
+mpiexec -n 112 ./d2q9-bgk input_1024x1024.params obstacles_1024x1024.dat
 
 # srun amplxe-cl –c hotspots –r otrput ./d2q9-bgk input_128x128.params obstacles_128x128.dat
 # srun amplxe-cl –c hotspots –r otrput ./d2q9-bgk input_128x256.params obstacles_128x256.dat
